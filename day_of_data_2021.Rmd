@@ -1,6 +1,10 @@
 ---
 title: "UMN Day of Data 2021"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
 ---
 
 # Install missing packages
