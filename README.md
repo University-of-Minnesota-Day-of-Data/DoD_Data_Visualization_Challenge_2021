@@ -1,3 +1,5 @@
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/University-of-Minnesota-Day-of-Data/DoD_Data_Visualization_Challenge_2021/master?filepath=2021DayofData_Python.ipynb)
+
 # Day of Data Data Visualization Challenge 2021
 This repository contains sample scripts and data for the Data Visualization Challenge for UMN Day of Data 2021.
 
