@@ -1,0 +1,418 @@
+---
+title: "UMN Day of Data 2021"
+output: html_notebook
+---
+
+# Install missing packages
+
+If you're not sure whether you have the **ipumsr**, **knitr**, and **tidyverse**
+packages installed, run the code chunk below:
+
+```{r eval=FALSE}
+if (!require(ipumsr)) install.packages("ipumsr")
+if (!require(knitr)) install.packages("knitr")
+if (!require(tidyverse)) install.packages("tidyverse")
+```
+
+# Load packages
+
+This script uses functions from the **ipumsr** and **knitr** packages, as well as
+the **tidyverse** collection of packages, so we'll attach those packages now.
+
+```{r}
+library(ipumsr)
+library(knitr)
+library(tidyverse)
+```
+
+# Read in the data
+
+First, let's load our data, along with the metadata in the XML DDI file. Let's
+set `lower_vars` to `TRUE` here to make all variable names lowercase, for ease
+of typing.
+
+```{r results='hide'}
+metadata <- read_ipums_ddi("dod2021_ipums_acs_cities.xml", lower_vars = TRUE)
+data <- read_ipums_micro(metadata, data_file = "dod2021_ipums_acs_cities.csv.gz")
+```
+
+# Explore the data
+
+The code below prints out a list of all the variables in our dataset, along 
+with a short description of each. You can refer to this list if you want to 
+explore these data in your own way. (Note that we use the function `kable()` 
+from package **knitr** here simply because it does a better job of fitting the 
+whole table on the screen than does the default table output.)
+
+
+```{r}
+metadata %>% 
+  ipums_var_info() %>% 
+  select(var_name, var_label) %>% 
+  arrange(var_name) %>% 
+  kable()
+```
+
+
+If you want to see the values, value labels, and frequencies for any of these
+variables, you can use some code like the following (`levels = "both"` creates 
+values that include both the numeric code and the value label).
+
+```{r}
+data %>% 
+  mutate(educ = as_factor(educ, levels = "both")) %>% 
+  count(educ) %>% 
+  arrange(educ)
+```
+
+The visualizations below will aggregate the data at the level of cities and 
+regions, so let's take a look at the cities we have in our dataset, organized by 
+region.
+
+```{r}
+data %>% 
+  mutate(
+    region_name = as_factor(region, levels = "both"),
+    state_name = as_factor(statefip, levels = "both"), 
+    city_name = as_factor(city, levels = "both")
+  ) %>%
+  distinct(region_name, state_name, city_name) %>%
+  arrange(region_name, state_name, city_name) %>% 
+  kable()
+```
+
+In the city-level visualizations below, we will focus on cities in the West 
+North Central Division (including Minneapolis and St. Paul), but you should 
+feel free to modify the code to explore any region or cities that you are 
+interested in.
+
+# Prepare the data
+
+To simplify the visualizations below, it will be helpful to recode and collapse 
+some variables into fewer categories. Let's do that here so that we can focus 
+on the visualization code below.
+
+First, we'll create `city_name` and `region_name` variables so it's easy to
+print city and region names instead of codes. We can still use the original 
+variables to refer to the codes for those variables.
+
+```{r}
+data <- data %>% 
+  mutate(city_name = as_factor(city), region_name = as_factor(region))
+```
+
+Some of our visualizations below will examine mode of transportation to work, so 
+let's create a simplified version of that variable.
+
+```{r}
+data <- data %>% 
+  mutate(
+    tranwork_collapsed = case_when(
+      tranwork == 0 ~ NA_character_,
+      tranwork == 10 ~ "Automobile",
+      tranwork %in% 31:39 ~ "Public transit",
+      tranwork == 50 ~ "Bicycle",
+      tranwork == 60 ~ "Walking",
+      tranwork %in% c(20, 70) ~ "Other",
+      tranwork == 80 ~ "Worked at home"
+    )
+  )
+```
+
+Finally, let's create a collapsed version of the race variable.
+
+```{r}
+data <- data %>% 
+  mutate(
+    race_collapsed = case_when(
+      race == 1 ~ "White",
+      race == 2 ~ "Black",
+      race == 3 ~ "American Indian or Alaska Native",
+      race %in% 4:6 ~ "Asian or Pacific Islander",
+      race %in% 7:9 ~ "Other or multiple races"
+    )
+  )
+```
+
+
+# Visualize the data
+
+## Number of working age people
+
+As a first pass at the data, let's look at how many people of prime working age 
+(25-54) are in our data for each year. (Note that this includes both employed 
+and unemployed persons; to limit to employed persons, you could use the 
+variable "empstat".)
+
+```{r}
+data %>% 
+  filter(age %in% 25:54) %>% 
+  count(year) %>% 
+  ggplot(aes(x = year, y = n)) + 
+    geom_line(size = 2) + 
+    geom_point(size = 3) +
+    ggtitle("Number of people ages 25-54, 2013-2019")
+```
+
+Our first reaction to this plot might be to wonder why there are so many more
+people in our data in the middle years of the time range. However, when we look
+at the y-axis values, we see that the number of cases really only ranges from
+about 104,000 to about 106,000. A bar plot, which always starts the y-axis at
+zero, does a better job here of showing the (small) magnitude of variation over
+time.
+
+```{r}
+data %>% 
+  filter(age %in% 25:54) %>% 
+  count(year) %>% 
+  ggplot(aes(x = year, y = n)) + 
+    geom_col() +
+    ggtitle("Number of people ages 25-54, 2013-2019")
+```
+
+## Number of working age people by city
+
+Before we dive into cities in a particular region, let's look at the range of 
+number of workers across all cities in our data.
+
+```{r}
+data %>% 
+  filter(age %in% 25:54) %>% 
+  count(city_name) %>% 
+  mutate(city_name = fct_reorder(city_name, n, mean)) %>% 
+  ggplot(aes(x = city_name, y = n)) + 
+    geom_col() + 
+    coord_flip() + 
+    labs(title = "Number of persons of working age in the data", x = NULL, 
+         y = NULL)
+```
+
+This graph shows that a large portion of our dataset is made up of people from 
+the few most populous cities.
+
+## Number of working age people by city over time
+
+Now focusing on the West North Central Division, let's see how many people of
+working age are in our data for each city between 2013 and 2019.
+
+```{r}
+data %>% 
+  filter(region == 22 & age %in% 25:54) %>% 
+  count(city_name, year) %>% 
+  mutate(city_name = fct_reorder(city_name, n, .fun = mean)) %>% 
+  ggplot(aes(x = year, y = n, color = city_name)) + 
+    geom_line(size = 2) + 
+    geom_point(size = 3) + 
+    guides(color = guide_legend(reverse = TRUE)) + # reorder legend labels
+    labs(x = "Year", y = NULL, color = "City", 
+         title = "Number of people ages 25-54")
+```
+
+The trends are pretty flat here, as we would expect, but we should notice that 
+we have relatively few observations in each year from each city, especially 
+Sioux Falls and Kansas City, so we should be cautious about breaking down those 
+city-years further into groups by other things such as race or age.
+
+## Modes of transportation across all cities
+
+How do people across all these cities get to work? Keep in mind that these 
+results will be strongly influenced by a few large cities.
+
+```{r}
+data %>% 
+  filter(age %in% 25:54) %>% 
+  filter(!is.na(tranwork_collapsed)) %>% 
+  ggplot(aes(x = tranwork_collapsed)) +
+    geom_bar() +
+    labs(
+      title = "Number of people using each mode of transportation to get to work", 
+      x = NULL, 
+      y = NULL
+    )
+```
+
+Automobile transportation is clearly dominant, and while a large minority of 
+people use public transit, this is heavily dependent on region and city. Besides 
+automobile and public transit, walking and working from home are the next most 
+common ways of getting to work, with bicycle and other modes relatively 
+uncommon.
+
+## Modes of transportation in Minneapolis
+
+If we're interested in one particular city, we can filter down to that city and 
+graph the number of people using each mode.
+
+```{r}
+data %>% 
+  filter(age %in% 25:54) %>% 
+  filter(city_name == "Minneapolis, MN") %>% 
+  filter(!is.na(tranwork_collapsed)) %>% 
+  ggplot(aes(x = tranwork_collapsed)) +
+    geom_bar() +
+    labs(
+      title = paste0(
+        "Number of people using each mode of transportation to get to work, ", 
+        "Minneapolis"
+      ),
+      x = NULL, 
+      y = NULL
+    )
+```
+
+
+## Modes of transportation by region
+
+Does the breakdown of transportation modes look different by region? To create 
+a visualization by mode of transportation *and* region, it will be helpful to 
+switch from visualizing the *number* of people using each mode to visualizing 
+the *share* or *percentage* of people using each mode by region, since these 
+regions have widely varying numbers of people in our dataset. 
+
+The code below creates a summary dataset capturing the percentage of people in
+each region using each mode of transportation across all years 2013-2019. Feel
+free to gloss over this code if you want to focus on the visualization code, but
+keep in mind that creating these types of summaries is often a necessary first
+step to making visualizations from microdata.
+
+```{r}
+mode_share_by_region <- data %>% 
+  filter(age %in% 25:54) %>% 
+  filter(!is.na(tranwork_collapsed)) %>% 
+  group_by(region_name) %>% 
+  mutate(total_workers = n()) %>% 
+  group_by(region_name, tranwork_collapsed) %>% 
+  summarize(pct_mode_share = 100 * n() / total_workers[1], .groups = "drop")
+```
+
+Now we can graph the transportation mode share by region. Note that New Orleans,
+LA is the only city in our data from the West South Central region.
+
+```{r}
+mode_share_by_region %>% 
+  ggplot(aes(x = tranwork_collapsed, y = pct_mode_share)) + 
+    geom_col() + 
+    coord_flip() +
+    facet_wrap(~region_name) + 
+    labs(title = "Percentage of people using each transportation mode by region", 
+         x = NULL, y = "%")
+```
+
+This graph reveals the wide variation of public transit usage by region, with 
+public transit as the most common mode in the Middle Atlantic Division (which 
+includes New York City), and fairly common in the New England, East North 
+Central, and South Atlantic divisions, but relatively uncommon in the other 
+regions.
+
+## West North Central Division
+
+### Modes of transportation by city 
+
+Since we have relatively few cases in each year for each city, we should 
+probably pool across years to look at differences in mode of transportation to 
+work. Before creating a visualization, let's create a summary dataset that will 
+serve as the basis for the graph.
+
+Again, you can skim over this part of the code if you want to get to the 
+visualization, but here's what the summary dataset looks like if you're 
+interested.
+
+```{r}
+mode_share_by_city <- data %>% 
+  filter(region == 22 & age %in% 25:54) %>% 
+  filter(!is.na(tranwork_collapsed)) %>% 
+  group_by(city_name) %>% 
+  mutate(total_workers = n()) %>% 
+  group_by(city_name, tranwork_collapsed) %>% 
+  summarize(pct_mode_share = 100 * n() / total_workers[1], .groups = "drop")
+
+mode_share_by_city
+```
+
+Now we can focus on the code to create the graph, below.
+
+```{r}
+mode_share_by_city %>% 
+  ggplot(aes(x = tranwork_collapsed, y = pct_mode_share)) + 
+    geom_col() + 
+    coord_flip() +
+    facet_wrap(~city_name) +
+    labs(title = "Percentage of people using each transportation mode by city", 
+         x = NULL, y = "%")
+```
+
+Automobiles are overwhelmingly the most common mode across all cities, so let's 
+also make a graph that excludes automobile drivers to get a better picture of 
+the relative popularity of other modes.
+
+```{r}
+mode_share_by_city %>% 
+  filter(tranwork_collapsed != "Automobile") %>% 
+  ggplot(aes(x = tranwork_collapsed, y = pct_mode_share)) + 
+    geom_col() + 
+    coord_flip() +
+    facet_wrap(~city_name) +
+    labs(title = "Percentage of people using each transportation mode by city", 
+         x = NULL, y = "%")
+```
+
+### Public transit use by city and race
+
+First let's create a summary dataset.
+
+```{r}
+mode_share_by_race <- data %>% 
+  filter(region == 22 & age %in% 25:54) %>% 
+  filter(!is.na(tranwork_collapsed)) %>% 
+  group_by(city_name, race_collapsed) %>% 
+  mutate(total_workers = n()) %>% 
+  group_by(city_name, tranwork_collapsed, race_collapsed) %>% 
+  summarize(pct_mode_share = 100 * n() / total_workers[1], .groups = "drop")
+```
+
+Now let's visualize public transit usage by city and race.
+
+```{r}
+mode_share_by_race %>% 
+  filter(tranwork_collapsed == "Public transit") %>% 
+  mutate(
+    # reorder categories by public transit usage
+    race_collapsed = fct_reorder(race_collapsed, pct_mode_share, .fun = mean),
+    city_name = fct_reorder(city_name, pct_mode_share, .fun = mean)
+  ) %>% 
+  ggplot(aes(x = city_name, y = pct_mode_share, fill = race_collapsed)) +
+    geom_col(position = position_dodge()) + # grouped bars side-by-side instead of stacked
+    coord_flip() + # horizontal instead of vertical bars
+    guides(fill = guide_legend(reverse = TRUE)) + # reorder legend labels
+    labs(fill = "Race") + 
+    xlab(NULL) +
+    ylab("% mode share") + 
+    ggtitle("Public transit usage by race in select cities, 2013-2019")
+```
+
+### Working at home by city and race
+
+Now let's visualize rates of working at home by city and race.
+
+```{r}
+mode_share_by_race %>% 
+  filter(tranwork_collapsed == "Worked at home") %>% 
+  # Turns out there are only 13 persons with race of "American Indian or 
+  #   Alaska Native" from Saint Louis in the data, so let's exclude that group
+  filter(
+    !(city_name == "Saint Louis, MO" & 
+        race_collapsed == "American Indian or Alaska Native")
+  ) %>% 
+  mutate(
+    # reorder categories by rates of working at home
+    race_collapsed = fct_reorder(race_collapsed, pct_mode_share, .fun = mean),
+    city_name = fct_reorder(city_name, pct_mode_share, .fun = mean)
+  ) %>% 
+  ggplot(aes(x = city_name, y = pct_mode_share, fill = race_collapsed)) +
+    geom_col(position = position_dodge()) + # grouped bars side-by-side instead of stacked
+    coord_flip() + # horizontal instead of vertical bars
+    guides(fill = guide_legend(reverse = TRUE)) + # reorder legend labels
+    labs(fill = "Race") + 
+    xlab(NULL) +
+    ylab("% of workers") + 
+    ggtitle("Prevalence of working at home by race in select cities, 2013-2019")
+```
